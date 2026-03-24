@@ -1,0 +1,201 @@
+name: Build and Push Docker Images
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'server/**'
+      - 'openmemory/api/**'
+      - 'openmemory/ui/**'
+      - '.github/workflows/docker-build.yml'
+  release:
+    types: [published]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  OWNER: ${{ github.repository_owner }}
+
+jobs:
+  # ──────────────────────────────────────────────
+  # Detect which components have changed
+  # ──────────────────────────────────────────────
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    # On workflow_dispatch or release, rebuild everything
+    outputs:
+      server: ${{ github.event_name != 'push' || steps.filter.outputs.server }}
+      mcp: ${{ github.event_name != 'push' || steps.filter.outputs.mcp }}
+      ui: ${{ github.event_name != 'push' || steps.filter.outputs.ui }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Filter changed paths
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            server:
+              - 'server/**'
+              - '.github/workflows/docker-build.yml'
+            mcp:
+              - 'openmemory/api/**'
+              - '.github/workflows/docker-build.yml'
+            ui:
+              - 'openmemory/ui/**'
+              - '.github/workflows/docker-build.yml'
+
+  # ──────────────────────────────────────────────
+  # mem0 REST API server
+  # ──────────────────────────────────────────────
+  build-mem0-server:
+    needs: changes
+    if: needs.changes.outputs.server == 'true'
+    name: Build mem0-server
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.OWNER }}/mem0-server
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push mem0-server image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./server
+          file: ./server/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=mem0-server
+          cache-to: type=gha,mode=max,scope=mem0-server
+
+  # ──────────────────────────────────────────────
+  # OpenMemory MCP API
+  # ──────────────────────────────────────────────
+  build-openmemory-mcp:
+    needs: changes
+    if: needs.changes.outputs.mcp == 'true'
+    name: Build openmemory-mcp
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.OWNER }}/openmemory-mcp
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push openmemory-mcp image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./openmemory/api
+          file: ./openmemory/api/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=openmemory-mcp
+          cache-to: type=gha,mode=max,scope=openmemory-mcp
+
+  # ──────────────────────────────────────────────
+  # OpenMemory UI
+  # ──────────────────────────────────────────────
+  build-openmemory-ui:
+    needs: changes
+    if: needs.changes.outputs.ui == 'true'
+    name: Build openmemory-ui
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.OWNER }}/openmemory-ui
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push openmemory-ui image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./openmemory/ui
+          file: ./openmemory/ui/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=openmemory-ui
+          cache-to: type=gha,mode=max,scope=openmemory-ui
